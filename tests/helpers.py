@@ -1,160 +1,10 @@
-import functools
 import itertools
 from typing import Any, List, Optional
 from unittest.mock import AsyncMock, Mock
 
-import discord
 from sqlalchemy.ext.asyncio import AsyncSession
-from ironforgedcore.common.roles import ROLE
-from ironforgedcore.common.ranks import RANK, get_activity_threshold_for_rank
-
-VALID_CONFIG = {
-    "TEMP_DIR": "/tmp",
-    "SHEET_ID": "1111",
-    "GUILD_ID": "2222",
-    "BOT_TOKEN": "aaaaa",
-    "WOM_GROUP_ID": "3333",
-    "WOM_API_KEY": "xxxxx",
-    "AUTOMATION_CHANNEL_ID": "123456",
-    "TRICK_OR_TREAT_ENABLED": "False",
-    "TRICK_OR_TREAT_CHANNEL_ID": "",
-    "RAFFLE_CHANNEL_ID": "123456",
-    "INGOT_SHOP_CHANNEL_ID": "123456",
-    "RULES_CHANNEL_ID": "123456",
-    "RANKINGS_CHANNEL_ID": "123456",
-    "BOT_CHANGELOG_CHANNEL_ID": "123456",
-    "BOT_COMMANDS_CHANNEL_ID": "123456",
-    "CREATE_TICKET_CHANNEL_ID": "123456",
-}
 
 _id_counter = itertools.count(100000)
-
-
-def create_mock_discord_interaction(
-    members: Optional[List[discord.Member]] = None,
-    user: Optional[discord.Member] = None,
-    channel_id: Optional[int] = None,
-    data: Optional[Any] = None,
-) -> discord.Interaction:
-    members_list = list(members) if members else []
-
-    if not user:
-        user = create_test_member("tester", [ROLE.MEMBER], "tester")
-
-    members_list.append(user)
-    interaction = Mock(spec=discord.Interaction)
-    interaction.id = next(_id_counter)
-    interaction.followup = AsyncMock()
-    interaction.response = AsyncMock()
-    interaction.response.defer = AsyncMock()
-    interaction.response.send_message = AsyncMock()
-    interaction.response.edit_message = AsyncMock()
-    interaction.response.is_done = Mock(
-        return_value=False
-    )  # Not async, returns False by default
-    interaction.guild = create_mock_discord_guild(members_list)
-    interaction.user = user
-    interaction.data = data
-    interaction.token = "mock_token"
-    interaction.application_id = next(_id_counter)
-
-    # Set up guild.get_member to return the user for role checking
-    interaction.guild.get_member = Mock(return_value=user)
-
-    if channel_id:
-        interaction.channel_id = channel_id
-        interaction.channel = Mock()
-        interaction.channel.id = channel_id
-    else:
-        interaction.channel_id = next(_id_counter)
-        interaction.channel = Mock()
-        interaction.channel.id = interaction.channel_id
-
-    # Mock created_at with timestamp method for backrooms tests
-    created_at_mock = Mock()
-    created_at_mock.timestamp = Mock(return_value=1600000000.0)
-    interaction.created_at = created_at_mock
-
-    return interaction
-
-
-def create_mock_discord_guild(
-    members: Optional[List[discord.Member]] = None, roles: Optional[List[str]] = None
-) -> discord.Guild:
-    guild = Mock(spec=discord.Guild)
-    guild.id = next(_id_counter)
-    guild.name = "Test Guild"
-    guild.members = members or []
-    guild.emojis = []
-    guild.roles = [create_mock_discord_role(role) for role in (roles or [])]
-    guild.member_count = len(guild.members)
-    guild.get_member = Mock(return_value=None)
-    guild.get_role = Mock(return_value=None)
-    guild.get_channel = Mock(return_value=None)
-
-    return guild
-
-
-def create_mock_discord_role(name: str) -> discord.Role:
-    role = Mock(spec=discord.Role)
-    role.name = name
-    role.id = next(_id_counter)
-    role.mention = f"<@&{role.id}>"
-    role.position = 0
-    role.permissions = Mock()
-    return role
-
-
-def create_test_member(
-    name: str, roles: List[str], nick: Optional[str] = None
-) -> discord.Member:
-    role_list = [create_mock_discord_role(role) for role in roles]
-
-    mock_member = Mock(spec=discord.Member)
-    mock_member.bot = False
-    mock_member.id = next(_id_counter)
-    mock_member.roles = role_list
-    mock_member.name = name
-    mock_member.nick = nick
-    mock_member.display_name = nick or name
-    mock_member.mention = f"<@{mock_member.id}>"
-    mock_member.avatar = None
-    mock_member.joined_at = None
-    mock_member.add_roles = AsyncMock()
-    mock_member.remove_roles = AsyncMock()
-    mock_member.edit = AsyncMock()
-
-    return mock_member
-
-
-def mock_require_role(role_name: str, ephemeral: Optional[bool] = False):
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            return await func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-def mock_require_channel(channel_ids: list):
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            return await func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-async def get_url_status_code(session, url, timeout=5):
-    try:
-        async with session.get(url, timeout=timeout) as response:
-            return response.status
-    except Exception as e:
-        return str(e)
 
 
 def create_mock_db_session() -> AsyncMock:
@@ -180,7 +30,6 @@ def setup_database_service_mocks(
     """
     mock_session = create_mock_db_session()
 
-    # Set up the async context manager pattern
     mock_context_manager = AsyncMock()
     mock_context_manager.__aenter__.return_value = mock_session
     mock_context_manager.__aexit__.return_value = None
@@ -189,82 +38,9 @@ def setup_database_service_mocks(
     if mock_service_instance is None:
         mock_service_instance = AsyncMock()
 
-    # For factory functions, we set the return value directly
     mock_service_factory.return_value = mock_service_instance
 
     return mock_session, mock_service_instance
-
-
-def assert_embed_structure(
-    test_case,
-    interaction_mock,
-    expected_title=None,
-    expected_description=None,
-    expected_field_count=None,
-    expected_color=None,
-    expected_fields=None,
-):
-    """Validates common embed properties sent via interaction.followup.send."""
-    interaction_mock.followup.send.assert_called_once()
-    call_args = interaction_mock.followup.send.call_args
-
-    # Check embed was sent
-    test_case.assertIn("embed", call_args.kwargs)
-    embed = call_args.kwargs["embed"]
-
-    if expected_title is not None:
-        test_case.assertEqual(embed.title, expected_title)
-
-    if expected_description is not None:
-        test_case.assertEqual(embed.description, expected_description)
-
-    if expected_color is not None:
-        test_case.assertEqual(embed.color, expected_color)
-
-    if expected_field_count is not None:
-        test_case.assertEqual(len(embed.fields), expected_field_count)
-
-    if expected_fields is not None:
-        for i, (name, value, inline) in enumerate(expected_fields):
-            test_case.assertEqual(embed.fields[i].name, name)
-            test_case.assertEqual(embed.fields[i].value, value)
-            test_case.assertEqual(embed.fields[i].inline, inline)
-
-    return embed
-
-
-def assert_error_response_sent(test_case, interaction_mock, expected_error_message):
-    """Validates that send_error_response was called with expected message."""
-    # This assumes send_error_response was mocked in the test
-    # The actual mock object should be passed or accessed via the test
-    test_case.assertTrue(interaction_mock.followup.send.called)
-    call_args = interaction_mock.followup.send.call_args
-
-    if "embed" in call_args.kwargs:
-        embed = call_args.kwargs["embed"]
-        test_case.assertIn(expected_error_message, embed.description)
-
-
-def assert_followup_called_with_embed(
-    test_case, interaction_mock, embed_title=None, has_file=False, call_count=1
-):
-    """Validates interaction.followup.send was called with expected parameters."""
-    if call_count == 1:
-        interaction_mock.followup.send.assert_called_once()
-    else:
-        test_case.assertEqual(interaction_mock.followup.send.call_count, call_count)
-
-    call_args = interaction_mock.followup.send.call_args
-
-    if has_file:
-        test_case.assertIn("file", call_args.kwargs)
-
-    if embed_title is not None:
-        test_case.assertIn("embed", call_args.kwargs)
-        embed = call_args.kwargs["embed"]
-        test_case.assertEqual(embed.title, embed_title)
-
-    return call_args
 
 
 def create_test_db_member(
@@ -281,11 +57,9 @@ def create_test_db_member(
     **kwargs,
 ):
     """Creates test Member model instance with common defaults."""
-    from unittest.mock import Mock
     from datetime import datetime, timezone
 
     member = Mock()
-    # If id is provided in kwargs, use it, otherwise generate a string ID
     if "id" in kwargs:
         member.id = kwargs.pop("id")
     else:
@@ -302,36 +76,10 @@ def create_test_db_member(
     member.is_blacklisted = is_blacklisted
     member.is_banned = is_banned
 
-    # Apply any additional kwargs
     for key, value in kwargs.items():
         setattr(member, key, value)
 
     return member
-
-
-def create_wom_response_mock(
-    status=200,
-    skills_data=None,
-    activities_data=None,
-    player_data=None,
-    name_changes_data=None,
-):
-    """Creates standardized WOM API response mock."""
-    mock_response = Mock()
-    mock_response.status = status
-
-    if skills_data is not None:
-        mock_response.body = {"skills": skills_data}
-    elif activities_data is not None:
-        mock_response.body = {"activities": activities_data}
-    elif player_data is not None:
-        mock_response.body = player_data
-    elif name_changes_data is not None:
-        mock_response.body = name_changes_data
-    else:
-        mock_response.body = {}
-
-    return mock_response
 
 
 def setup_time_mocks(
@@ -351,92 +99,6 @@ def setup_time_mocks(
         mock_time.perf_counter.side_effect = [0.0, duration_seconds]
 
     return fixed_datetime
-
-
-def create_test_score_data(skills_count=2, activities_count=2, total_points=1500):
-    """Creates standardized score test data for skill/activity calculations."""
-    from unittest.mock import Mock
-
-    # Create sample skills with proper sorting attributes
-    skills = []
-    for i in range(skills_count):
-        skill = Mock()
-        skill.name = f"Skill{i+1}"
-        skill.group = None
-        skill.id = i + 1
-        skill.canonical_name = f"Skill{i+1}"
-        skill.experience = 13034000 - (i * 1000000)
-        skill.xp = skill.experience  # Add xp alias for compatibility
-        skill.level = 99 - (i * 5)
-        skill.points = 1000 - (i * 100)
-        skill.display_order = i + 1  # Add for sorting
-        # Create proper comparison methods
-        skill._display_order = i + 1
-
-        def make_lt(order):
-            return lambda other: order < other._display_order
-
-        def make_gt(order):
-            return lambda other: order > other._display_order
-
-        def make_eq(order):
-            return lambda other: order == other._display_order
-
-        skill.__lt__ = make_lt(i + 1)
-        skill.__gt__ = make_gt(i + 1)
-        skill.__eq__ = make_eq(i + 1)
-        skills.append(skill)
-
-    # Create sample activities with proper sorting attributes
-    activities = []
-    for i in range(activities_count):
-        activity = Mock()
-        activity.name = f"Activity{i+1}"
-        activity.group = None
-        activity.id = i + 1
-        activity.canonical_name = f"Activity{i+1}"
-        activity.count = 200 - (i * 50)
-        activity.score = activity.count  # Add score alias for compatibility
-        activity.kc = activity.count  # Add kc alias for compatibility
-        activity.points = 100 - (i * 25)
-        activity.display_order = i + 1  # Add for sorting
-        # Create proper comparison methods
-        activity._display_order = i + 1
-
-        def make_lt(order):
-            return lambda other: order < other._display_order
-
-        def make_gt(order):
-            return lambda other: order > other._display_order
-
-        def make_eq(order):
-            return lambda other: order == other._display_order
-
-        activity.__lt__ = make_lt(i + 1)
-        activity.__gt__ = make_gt(i + 1)
-        activity.__eq__ = make_eq(i + 1)
-        activities.append(activity)
-
-    # Create breakdown mock
-    breakdown = Mock()
-    breakdown.skills = skills
-    breakdown.clues = activities[:1] if activities else []
-    breakdown.raids = activities[1:2] if len(activities) > 1 else []
-    breakdown.bosses = (
-        activities[2:] if len(activities) > 2 else activities[-1:] if activities else []
-    )
-
-    return breakdown
-
-
-def create_test_member_with_scores(
-    nickname="TestUser", discord_id=None, rank="Iron", total_points=1500, **kwargs
-):
-    """Creates a test member with associated score data."""
-    member = create_test_db_member(nickname, discord_id, rank, **kwargs)
-    member.total_points = total_points
-    member.score_breakdown = create_test_score_data()
-    return member
 
 
 def create_test_score_breakdown(skills_count=2, activities_count=2):
@@ -496,102 +158,6 @@ def create_test_score_breakdown(skills_count=2, activities_count=2):
     return ScoreBreakdown(skills=skills, clues=clues, raids=raids, bosses=bosses)
 
 
-# Trick-or-Treat Test Helpers
-
-MOCK_TRICK_OR_TREAT_DATA = """
-{
-    "general": {
-        "positive_messages": ["Test positive {ingots}"],
-        "negative_messages": ["Test negative {ingots}"],
-        "no_ingots_message": "No ingots test message"
-    },
-    "jackpot": {
-        "success_prefix": "Jackpot {mention} {ingot_icon}{amount:,}",
-        "claimed_message": "Already claimed"
-    },
-    "remove_all_trick": {
-        "message": "Removed {ingot_icon}-{amount:,}"
-    },
-    "double_or_nothing": {
-        "offer": "Double or nothing {ingot_icon}{amount:,} expires {expires}",
-        "win": "You won {ingot_icon}{total_amount:,}",
-        "lose": "You lost {ingot_icon}{amount}",
-        "keep": "You kept {ingot_icon}{amount:,}",
-        "expired": "Expired {ingot_icon}{amount:,}"
-    },
-    "steal": {
-        "offer": "Steal {ingot_icon}{amount:,} penalty {ingot_icon}{penalty:,} expires {expires}",
-        "success": "Success {ingot_icon}{amount:,} from {target_mention}",
-        "failure": "Failed {ingot_icon}{amount:,} {target_mention} penalty {ingot_icon}{penalty}",
-        "walk_away": "Walked away",
-        "expired": "Time's up",
-        "no_targets": "No targets",
-        "target_no_ingots": "{target_mention} has no ingots",
-        "user_no_ingots": "Need {ingot_icon}{penalty:,}"
-    },
-    "backrooms": {
-        "intro": "Backrooms test intro {expires}",
-        "door_labels": ["Test Door 1", "Test Door 2", "Test Door 3"],
-        "treasure_messages": ["Test treasure {ingots}"],
-        "monster_messages": ["Test monster {ingots}"],
-        "escape_messages": ["Test escape"],
-        "lucky_escape_messages": ["Test lucky escape"],
-        "opening_door": "Opening {door}",
-        "suspense_thumbnail": "http://test.com/door-opening.gif",
-        "expired": "Test expired",
-        "thumbnails": ["http://test.com/backrooms.png"]
-    },
-    "joke": {
-        "messages": ["Test joke"]
-    },
-    "quiz_master": {
-        "intro": "Quiz Master test intro {expires}",
-        "questions": [
-            {
-                "question": "Test question?",
-                "options": [
-                    {"text": "A", "emoji": "Ingot"},
-                    {"text": "B"},
-                    {"text": "C", "emoji": "Attack"},
-                    {"text": "D"}
-                ],
-                "correct_index": 2
-            }
-        ],
-        "correct_message": "Correct {ingot_icon}{amount:,}",
-        "wrong_lucky_message": "Wrong but lucky",
-        "wrong_penalty_message": "Wrong penalty {ingot_icon}{penalty}",
-        "expired_message": "Expired"
-    },
-    "media": {
-        "gifs": [],
-        "thumbnails": ["http://test.com/img.png"]
-    }
-}
-"""
-
-
-def create_test_trick_or_treat_handler():
-    """Create a TrickOrTreatHandler instance with mocked data.
-
-    Returns:
-        A TrickOrTreatHandler instance with MOCK_TRICK_OR_TREAT_DATA loaded.
-    """
-    import unittest.mock
-    from ironforgedbot.commands.trickortreat.trick_or_treat_handler import (
-        TrickOrTreatHandler,
-    )
-
-    with unittest.mock.patch(
-        "builtins.open", unittest.mock.mock_open(read_data=MOCK_TRICK_OR_TREAT_DATA)
-    ):
-        handler = TrickOrTreatHandler()
-        handler.ingot_icon = (
-            "🪙"  # Mock ingot_icon as string to avoid AsyncMock formatting issues
-        )
-        return handler
-
-
 def validate_role_mappings() -> list[str]:
     """
     Validate the role mapping configuration for consistency.
@@ -599,14 +165,16 @@ def validate_role_mappings() -> list[str]:
     Returns:
         List of validation error messages (empty if valid)
     """
+    from ironforgedcore.common.ranks import RANK
+    from ironforgedcore.common.roles import ROLE
     from ironforgedcore.common.wom_role_mapping import (
         WOM_TO_DISCORD_RANK_MAPPING,
         WOM_TO_DISCORD_ROLE_MAPPING,
     )
+    from ironforgedcore.common.ranks import get_activity_threshold_for_rank
 
     errors = []
 
-    # Validate that WOM roles map to valid ranks
     mapped_discord_ranks = set(WOM_TO_DISCORD_RANK_MAPPING.values())
     valid_ranks = set(RANK)
 
@@ -614,7 +182,6 @@ def validate_role_mappings() -> list[str]:
     if invalid_ranks:
         errors.append(f"Invalid ranks in mapping: {invalid_ranks}")
 
-    # Validate that WOM roles map to valid roles
     mapped_discord_roles = set(WOM_TO_DISCORD_ROLE_MAPPING.values())
     valid_roles = set(ROLE)
 
@@ -622,7 +189,6 @@ def validate_role_mappings() -> list[str]:
     if invalid_roles:
         errors.append(f"Invalid roles in mapping: {invalid_roles}")
 
-    # Check that achievement ranks have valid thresholds
     for rank in mapped_discord_ranks:
         try:
             threshold = get_activity_threshold_for_rank(rank)
@@ -634,7 +200,7 @@ def validate_role_mappings() -> list[str]:
     return errors
 
 
-def get_all_wom_roles_for_discord_role(discord_role: ROLE) -> list:
+def get_all_wom_roles_for_discord_role(discord_role) -> list:
     """
     Get all WOM roles that map to a specific Discord role.
 
@@ -654,7 +220,7 @@ def get_all_wom_roles_for_discord_role(discord_role: ROLE) -> list:
     ]
 
 
-def get_all_wom_roles_for_discord_rank(discord_rank: RANK) -> list:
+def get_all_wom_roles_for_discord_rank(discord_rank) -> list:
     """
     Get all WOM roles that map to a specific Discord rank.
 
@@ -672,50 +238,3 @@ def get_all_wom_roles_for_discord_rank(discord_rank: RANK) -> list:
         for wom_role, mapped_rank in WOM_TO_DISCORD_RANK_MAPPING.items()
         if mapped_rank == discord_rank
     ]
-
-
-def create_mock_member_update_context(
-    before_roles: List[str] = None,
-    after_roles: List[str] = None,
-    before_nick: str = None,
-    after_nick: str = None,
-    discord_id: int = None,
-):
-    """Creates mock MemberUpdateContext for handler testing.
-
-    Args:
-        before_roles: List of role names for the before member state
-        after_roles: List of role names for the after member state
-        before_nick: Nickname for before member (default: None)
-        after_nick: Nickname for after member (default: None)
-        discord_id: Discord ID to use (default: auto-generated)
-
-    Returns:
-        MemberUpdateContext with mocked before/after members and report channel
-    """
-    from ironforgedbot.events.member_events import MemberUpdateContext
-
-    before_roles = before_roles or []
-    after_roles = after_roles or []
-
-    before = create_test_member("TestUser", before_roles, before_nick)
-    after = create_test_member("TestUser", after_roles, after_nick)
-
-    if discord_id:
-        before.id = discord_id
-        after.id = discord_id
-    else:
-        after.id = before.id
-
-    report_channel = AsyncMock(spec=discord.TextChannel)
-    report_channel.send = AsyncMock()
-    report_channel.guild = Mock(spec=discord.Guild)
-    report_channel.guild.get_role = Mock(return_value=None)
-    report_channel.guild.get_member = Mock(return_value=None)
-    report_channel.guild.get_member_named = Mock(return_value=None)
-
-    return MemberUpdateContext(
-        before=before,
-        after=after,
-        report_channel=report_channel,
-    )

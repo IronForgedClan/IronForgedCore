@@ -391,9 +391,11 @@ class TestScoreService(unittest.IsolatedAsyncioTestCase):
 
     def test_process_activities_no_activity_data(self):
         """Test _process_activities raises RuntimeError when activity data is None"""
-        with patch("ironforgedcore.services.score_service.CLUES", None), patch(
-            "ironforgedcore.services.score_service.BOSSES", None
-        ), patch("ironforgedcore.services.score_service.RAIDS", None):
+        with (
+            patch("ironforgedcore.services.score_service.CLUES", None),
+            patch("ironforgedcore.services.score_service.BOSSES", None),
+            patch("ironforgedcore.services.score_service.RAIDS", None),
+        ):
             with self.assertRaises(RuntimeError) as context:
                 self.score_service._process_activities(self.sample_response_data)
 

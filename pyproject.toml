@@ -40,3 +40,11 @@ packages = [
     "ironforgedcore.services",
     "ironforgedcore.storage",
 ]
+
+[tool.setuptools.package-data]
+"ironforgedcore" = ["alembic.ini"]
+"ironforgedcore.alembic" = ["*.mako"]
+"ironforgedcore.alembic.versions" = ["*.py"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__", "*.pyc", "*.pyo"]

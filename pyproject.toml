@@ -33,6 +33,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = [
     "ironforgedcore",
+    "ironforgedcore.alembic",
+    "ironforgedcore.alembic.versions",
     "ironforgedcore.cache",
     "ironforgedcore.common",
     "ironforgedcore.exceptions",

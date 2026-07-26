@@ -101,20 +101,6 @@ All test files live in `tests/`. The structure mirrors the package:
 make test
 ```
 
-## Data
-
-`data/` ships with the repository and contains four JSON files that the storage
-layer loads at import time:
-
-- `skills.json` - OSRS skills with XP-per-point values
-- `bosses.json` - boss encounters with KC-per-point values
-- `clues.json` - clue scroll tiers with KC-per-point values
-- `raids.json` - raid activities with KC-per-point values
-
-In this repository the files are stubs sufficient for the test suite. In the
-consumer projects, `data/` is a git submodule that overrides the stubs with the
-live data.
-
 ## Contributing
 
 Contributions must:

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     ForeignKey,
     Integer,
     String,
@@ -39,6 +40,16 @@ class ApiAudit(Base):
     client_ip: Mapped[str | None] = mapped_column(String(length=64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(length=512), nullable=True)
     error: Mapped[str | None] = mapped_column(String(length=512), nullable=True)
+    query_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    route_template: Mapped[str | None] = mapped_column(
+        String(length=256), nullable=True
+    )
+    response_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_hit: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    api_version: Mapped[str | None] = mapped_column(String(length=32), nullable=True)
 
     def __repr__(self) -> str:
-        return f"ApiAudit(id={self.id}, method={self.method!r}, path={self.path!r}, status_code={self.status_code})"
+        return (
+            f"ApiAudit(id={self.id}, method={self.method!r}, "
+            f"path={self.path!r}, status_code={self.status_code})"
+        )

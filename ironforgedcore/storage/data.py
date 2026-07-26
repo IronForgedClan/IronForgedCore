@@ -1,6 +1,5 @@
 import json
 import logging
-import sys
 from typing import List, NotRequired, Type, TypedDict, TypeVar, cast
 
 T = TypeVar("T", bound=TypedDict)
@@ -23,8 +22,14 @@ class Activity(TypedDict):
     kc_per_point: int
 
 
-def load_json_data(file_name: str, type: Type[T]) -> List[T] | None:
-    with open(f"{file_name}", "r") as file:
+SKILLS: List[Skill] | None = None
+CLUES: List[Activity] | None = None
+RAIDS: List[Activity] | None = None
+BOSSES: List[Activity] | None = None
+
+
+def load_json_data(file_name: str, type: Type[T]) -> List[T]:
+    with open(file_name, "r") as file:
         logger.debug(f"Reading file: {file_name}")
         data = json.load(file)
 
@@ -50,12 +55,32 @@ def load_json_data(file_name: str, type: Type[T]) -> List[T] | None:
         return output
 
 
-try:
-    BOSSES = load_json_data("data/bosses.json", Activity)
-    CLUES = load_json_data("data/clues.json", Activity)
-    RAIDS = load_json_data("data/raids.json", Activity)
-    SKILLS = load_json_data("data/skills.json", Skill)
-    logger.info("Loaded local data successfully")
-except Exception as e:
-    logger.critical(e)
-    sys.exit(1)
+def set_data(
+    *,
+    skills: List[Skill] | None = None,
+    clues: List[Activity] | None = None,
+    raids: List[Activity] | None = None,
+    bosses: List[Activity] | None = None,
+) -> None:
+    """Populate module-level data constants. Called by consumers at startup
+    and by tests in setUp(). No-op for kwargs left as None."""
+    global SKILLS, CLUES, RAIDS, BOSSES
+    if skills is not None:
+        SKILLS = skills
+    if clues is not None:
+        CLUES = clues
+    if raids is not None:
+        RAIDS = raids
+    if bosses is not None:
+        BOSSES = bosses
+
+
+def load_and_set(data_dir: str = "data") -> None:
+    """Load skills.json, bosses.json, clues.json, raids.json from `data_dir`
+    and call set_data(). Used by consumer apps at startup."""
+    set_data(
+        skills=load_json_data(f"{data_dir}/skills.json", Skill),
+        clues=load_json_data(f"{data_dir}/clues.json", Activity),
+        raids=load_json_data(f"{data_dir}/raids.json", Activity),
+        bosses=load_json_data(f"{data_dir}/bosses.json", Activity),
+    )

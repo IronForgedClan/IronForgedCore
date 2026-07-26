@@ -7,7 +7,7 @@ from ironforgedcore.common.ranks import RANK, get_rank_from_points
 from ironforgedcore.exceptions.score_exceptions import HiscoresError, HiscoresNotFound
 from ironforgedcore.http import AsyncHttpClient, HttpResponse
 from ironforgedcore.models.score import ActivityScore, ScoreBreakdown, SkillScore
-from ironforgedcore.storage.data import BOSSES, CLUES, RAIDS, SKILLS
+from ironforgedcore.storage import data as data_module
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,8 @@ class ScoreService:
         return breakdown
 
     def _process_skills(self, score_data) -> list[SkillScore]:
-        if SKILLS is None or score_data is None or score_data["skills"] is None:
+        skills = data_module.SKILLS
+        if skills is None or score_data is None or score_data["skills"] is None:
             raise RuntimeError("Unable to read skills data")
 
         output = []
@@ -65,7 +66,7 @@ class ScoreService:
                 continue
 
             skill = next(
-                (skill for skill in SKILLS if skill["name"] == skill_name), None
+                (skill for skill in skills if skill["name"] == skill_name), None
             )
 
             if skill is None:
@@ -101,7 +102,10 @@ class ScoreService:
         self,
         score_data,
     ) -> tuple[list[ActivityScore], list[ActivityScore], list[ActivityScore]]:
-        if CLUES is None or BOSSES is None or RAIDS is None:
+        clues_config = data_module.CLUES
+        bosses_config = data_module.BOSSES
+        raids_config = data_module.RAIDS
+        if clues_config is None or bosses_config is None or raids_config is None:
             raise RuntimeError("Unable to read activity data")
 
         clues = []
@@ -111,7 +115,9 @@ class ScoreService:
         for activity in score_data["activities"]:
             activity_name = activity["name"]
 
-            clue = next((clue for clue in CLUES if clue["name"] == activity_name), None)
+            clue = next(
+                (clue for clue in clues_config if clue["name"] == activity_name), None
+            )
             if clue is not None:
                 kc = max(int(activity["score"]), 0)
                 data = ActivityScore(
@@ -129,7 +135,9 @@ class ScoreService:
                 clues.append(data)
                 continue
 
-            raid = next((raid for raid in RAIDS if raid["name"] == activity_name), None)
+            raid = next(
+                (raid for raid in raids_config if raid["name"] == activity_name), None
+            )
             if raid is not None:
                 kc = max(int(activity["score"]), 0)
 
@@ -149,7 +157,7 @@ class ScoreService:
                 continue
 
             boss = next(
-                (boss for boss in BOSSES if boss["name"] == activity_name), None
+                (boss for boss in bosses_config if boss["name"] == activity_name), None
             )
             if boss is not None:
                 kc = max(int(activity["score"]), 0)

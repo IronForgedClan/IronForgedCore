@@ -23,7 +23,7 @@ dev = [
     "starlette",
     "fastapi",
     "build",
-    "twine",
+    "uv",
 ]
 
 [build-system]

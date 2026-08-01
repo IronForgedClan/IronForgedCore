@@ -217,7 +217,7 @@ class WomService:
         except asyncio.TimeoutError as e:
             logger.error(f"Timeout getting monthly gains for {username}: {e}")
             raise WomTimeoutError("WOM API request timed out")
-        except (WomServiceError, WomRateLimitError, WomTimeoutError):
+        except WomServiceError, WomRateLimitError, WomTimeoutError:
             raise
         except Exception as e:
             error_str = str(e).lower()
@@ -271,7 +271,7 @@ class WomService:
         except asyncio.TimeoutError as e:
             logger.error(f"Timeout getting name history for {player_name}: {e}")
             raise WomTimeoutError("WOM API request timed out")
-        except (WomServiceError, WomRateLimitError, WomTimeoutError):
+        except WomServiceError, WomRateLimitError, WomTimeoutError:
             # Re-raise our custom exceptions without modification
             raise
         except Exception as e:
@@ -338,7 +338,7 @@ class WomService:
         except asyncio.TimeoutError as e:
             logger.error(f"Timeout getting snapshot timeline for {username}: {e}")
             raise WomTimeoutError("WOM API request timed out")
-        except (WomServiceError, WomRateLimitError, WomTimeoutError):
+        except WomServiceError, WomRateLimitError, WomTimeoutError:
             raise
         except Exception as e:
             logger.error(

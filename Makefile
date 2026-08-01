@@ -1,10 +1,11 @@
 .PHONY: test format migrate revision downgrade update-deps build-prod rmi-prod clean
 
 test:
-	uv sync
+	uv sync --extra dev
 	uv run python run_tests.py
 
 format:
+	uv sync --extra dev
 	uv run python -m black .
 
 migrate:

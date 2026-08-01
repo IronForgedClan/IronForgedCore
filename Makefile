@@ -1,24 +1,27 @@
-.PHONY: test format migrate revision downgrade build-prod rmi-prod clean
+.PHONY: test format migrate revision downgrade update-deps build-prod rmi-prod clean
 
 test:
-	python -m pip install -e .[dev]
-	python run_tests.py
+	uv sync --extra dev
+	uv run python run_tests.py
 
 format:
-	python -m black .
+	uv sync --extra dev
+	uv run python -m black .
 
 migrate:
-	python -m alembic -c ironforgedcore/alembic.ini upgrade head
+	uv run python -m alembic -c ironforgedcore/alembic.ini upgrade head
 
 revision:
-	python -m alembic -c ironforgedcore/alembic.ini revision --autogenerate -m "$(DESC)"
+	uv run python -m alembic -c ironforgedcore/alembic.ini revision --autogenerate -m "$(DESC)"
 
 downgrade:
-	python -m alembic -c ironforgedcore/alembic.ini downgrade -1
+	uv run python -m alembic -c ironforgedcore/alembic.ini downgrade -1
+
+update-deps:
+	uv lock --upgrade
 
 build-prod:
-	python -m pip install --upgrade build
-	python -m build
+	uv run --with build python -m build
 
 rmi-prod:
 	rm -rf dist/ build/ *.egg-info

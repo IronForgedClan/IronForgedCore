@@ -44,12 +44,19 @@ ironforgedcore @ git+https://github.com/ironforgedclan/ironforgedcore.git@v0.1.0
 
 ## Local Development
 
+The core uses [uv](https://docs.astral.sh/uv/) as its package manager.
+Install uv on your host:
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then clone and install:
+
 ```sh
 git clone https://github.com/IronForgedClan/IronForgedCore.git
 cd IronForgedCore
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
+uv sync
 ```
 
 ## Migrations

@@ -1,8 +1,8 @@
 [project]
 name = "ironforgedcore"
-version = "0.3.0"
+version = "1.0.0"
 description = "Shared database, models, services, and business logic for IronForgedBot and its API"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "sqlalchemy[asyncio]",
     "aiomysql",
@@ -23,7 +23,7 @@ dev = [
     "starlette",
     "fastapi",
     "build",
-    "twine",
+    "uv",
 ]
 
 [build-system]

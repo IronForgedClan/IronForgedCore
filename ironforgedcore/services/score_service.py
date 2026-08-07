@@ -6,7 +6,12 @@ from ironforgedcore.common.logging_utils import log_api_call
 from ironforgedcore.common.ranks import RANK, get_rank_from_points
 from ironforgedcore.exceptions.score_exceptions import HiscoresError, HiscoresNotFound
 from ironforgedcore.http import AsyncHttpClient, HttpResponse
-from ironforgedcore.models.score import ActivityScore, ScoreBreakdown, SkillScore
+from ironforgedcore.models.score import (
+    ActivityScore,
+    NextPointProgress,
+    ScoreBreakdown,
+    SkillScore,
+)
 from ironforgedcore.storage import data as data_module
 
 logger = logging.getLogger(__name__)
@@ -181,6 +186,145 @@ class ScoreService:
                 continue
 
         return clues, raids, bosses
+
+    async def get_proximity_to_next_point(
+        self, breakdown: ScoreBreakdown
+    ) -> list[NextPointProgress]:
+        """Return the top 10 items closest to gaining their next point.
+
+        Each item is a SkillScore or ActivityScore from the breakdown, scored
+        by the percentage of the next point already earned. Items with no
+        progress (0 XP / 0 KC) are excluded. Skills above level 99 use the
+        post-99 XP threshold. Activities with float `kc_per_point` are
+        supported.
+
+        Results are sorted by `progress_percent` descending, ties broken by
+        `name` ascending. Limited to the top 10.
+        """
+        results: list[NextPointProgress] = []
+
+        skills = data_module.SKILLS or []
+        for skill in breakdown.skills:
+            if skill.xp <= 0:
+                continue
+
+            config = next((s for s in skills if s["name"] == skill.name), None)
+            if config is None:
+                continue
+
+            if skill.xp < self.level_99_xp:
+                bucket = config["xp_per_point"]
+                current_point = skill.xp // bucket
+                next_threshold = (current_point + 1) * bucket
+            else:
+                bucket = config["xp_per_point_post_99"]
+                post_99_xp = skill.xp - self.level_99_xp
+                post_99_point = post_99_xp // bucket
+                next_threshold = self.level_99_xp + (post_99_point + 1) * bucket
+
+            remaining = next_threshold - skill.xp
+            if remaining <= 0:
+                continue
+
+            results.append(
+                NextPointProgress(
+                    category="skill",
+                    name=skill.name,
+                    display_name=None,
+                    emoji_key=skill.emoji_key,
+                    points=skill.points,
+                    progress_percent=1 - (remaining / bucket),
+                    remaining_to_next=remaining,
+                    unit="xp",
+                )
+            )
+
+        bosses = data_module.BOSSES or []
+        for boss in breakdown.bosses:
+            if boss.kc <= 0:
+                continue
+
+            config = next((b for b in bosses if b["name"] == boss.name), None)
+            if config is None:
+                continue
+
+            bucket = config["kc_per_point"]
+            next_threshold = (boss.points + 1) * bucket
+            remaining = next_threshold - boss.kc
+            if remaining <= 0:
+                continue
+
+            results.append(
+                NextPointProgress(
+                    category="boss",
+                    name=boss.name,
+                    display_name=boss.display_name,
+                    emoji_key=boss.emoji_key,
+                    points=boss.points,
+                    progress_percent=1 - (remaining / bucket),
+                    remaining_to_next=remaining,
+                    unit="kc",
+                )
+            )
+
+        raids = data_module.RAIDS or []
+        for raid in breakdown.raids:
+            if raid.kc <= 0:
+                continue
+
+            config = next((r for r in raids if r["name"] == raid.name), None)
+            if config is None:
+                continue
+
+            bucket = config["kc_per_point"]
+            next_threshold = (raid.points + 1) * bucket
+            remaining = next_threshold - raid.kc
+            if remaining <= 0:
+                continue
+
+            results.append(
+                NextPointProgress(
+                    category="raid",
+                    name=raid.name,
+                    display_name=raid.display_name,
+                    emoji_key=raid.emoji_key,
+                    points=raid.points,
+                    progress_percent=1 - (remaining / bucket),
+                    remaining_to_next=remaining,
+                    unit="kc",
+                )
+            )
+
+        clues = data_module.CLUES or []
+        for clue in breakdown.clues:
+            if clue.kc <= 0:
+                continue
+
+            config = next((c for c in clues if c["name"] == clue.name), None)
+            if config is None:
+                continue
+
+            bucket = config["kc_per_point"]
+            next_threshold = (clue.points + 1) * bucket
+            remaining = next_threshold - clue.kc
+            if remaining <= 0:
+                continue
+
+            results.append(
+                NextPointProgress(
+                    category="clue",
+                    name=clue.name,
+                    display_name=clue.display_name,
+                    emoji_key=clue.emoji_key,
+                    points=clue.points,
+                    progress_percent=1 - (remaining / bucket),
+                    remaining_to_next=remaining,
+                    unit="kc",
+                )
+            )
+
+        results.sort(key=lambda e: (-e.progress_percent, e.name))
+        return results[:10]
 
     async def get_player_points_total(
         self, player_name: str, bypass_cache: bool | None = False

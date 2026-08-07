@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 from ironforgedcore.services.score_service import ScoreService
 from ironforgedcore.exceptions.score_exceptions import HiscoresError, HiscoresNotFound
-from ironforgedcore.models.score import ActivityScore, ScoreBreakdown, SkillScore
+from ironforgedcore.models.score import (
+    ActivityScore,
+    NextPointProgress,
+    ScoreBreakdown,
+    SkillScore,
+)
 from ironforgedcore.common.ranks import RANK
 from ironforgedcore.storage import data as data_module
 
@@ -677,3 +682,243 @@ class TestScoreService(unittest.IsolatedAsyncioTestCase):
         raid = raids[0]
         self.assertEqual(raid.kc, 150)
         self.assertEqual(raid.points, 375)
+
+
+class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.mock_http = AsyncMock()
+        self.score_service = ScoreService(self.mock_http)
+
+        self.skills_config = [
+            {
+                "name": "Attack",
+                "display_order": 1,
+                "emoji_key": "Attack",
+                "xp_per_point": 100000,
+                "xp_per_point_post_99": 300000,
+            },
+            {
+                "name": "Defence",
+                "display_order": 7,
+                "emoji_key": "Defence",
+                "xp_per_point": 100000,
+                "xp_per_point_post_99": 300000,
+            },
+            {
+                "name": "Agility",
+                "display_order": 5,
+                "emoji_key": "Agility",
+                "xp_per_point": 30000,
+                "xp_per_point_post_99": 90000,
+            },
+        ]
+        self.bosses_config = [
+            {
+                "name": "Zulrah",
+                "display_order": 59,
+                "emoji_key": "Zulrah",
+                "kc_per_point": 12,
+            },
+            {
+                "name": "Abyssal Sire",
+                "display_order": 2,
+                "emoji_key": "Abyssal_Sire",
+                "kc_per_point": 10,
+            },
+        ]
+        self.raids_config = [
+            {
+                "name": "Chambers of Xeric",
+                "display_order": 1,
+                "emoji_key": "Chambers_of_Xeric",
+                "kc_per_point": 0.8,
+            },
+        ]
+        self.clues_config = [
+            {
+                "name": "Clue Scrolls (beginner)",
+                "display_name": "Beginner",
+                "display_order": 1,
+                "emoji_key": "Beginner_Clue",
+                "kc_per_point": 10,
+            },
+        ]
+
+        data_module.set_data(
+            skills=self.skills_config,
+            bosses=self.bosses_config,
+            raids=self.raids_config,
+            clues=self.clues_config,
+        )
+
+    async def test_empty_breakdown_returns_empty_list(self):
+        breakdown = ScoreBreakdown(skills=[], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(result, [])
+
+    async def test_skill_below_99_returns_correct_progress(self):
+        skill = SkillScore("Attack", None, 1, "Attack", 80000, 70, 0)
+        breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry.category, "skill")
+        self.assertEqual(entry.name, "Attack")
+        self.assertEqual(entry.emoji_key, "Attack")
+        self.assertEqual(entry.points, 0)
+        self.assertEqual(entry.unit, "xp")
+        self.assertEqual(entry.remaining_to_next, 20000)
+        self.assertAlmostEqual(entry.progress_percent, 0.8)
+
+    async def test_skill_at_point_threshold_is_zero_percent(self):
+        skill = SkillScore("Attack", None, 1, "Attack", 200000, 99, 2)
+        breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry.points, 2)
+        self.assertEqual(entry.remaining_to_next, 100000)
+        self.assertAlmostEqual(entry.progress_percent, 0.0)
+
+    async def test_skill_post_99_uses_post_99_bucket(self):
+        skill = SkillScore("Attack", None, 1, "Attack", 13200000, 99, 130)
+        breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry.points, 130)
+        self.assertEqual(entry.unit, "xp")
+        self.assertEqual(entry.remaining_to_next, 134431)
+        self.assertAlmostEqual(entry.progress_percent, 1 - 134431 / 300000, places=5)
+
+    async def test_skill_zero_xp_excluded(self):
+        skill = SkillScore("Attack", None, 1, "Attack", 0, 1, 0)
+        breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(result, [])
+
+    async def test_boss_returns_correct_progress(self):
+        boss = ActivityScore("Zulrah", None, 59, "Zulrah", 11, 0)
+        breakdown = ScoreBreakdown(skills=[], clues=[], raids=[], bosses=[boss])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry.category, "boss")
+        self.assertEqual(entry.name, "Zulrah")
+        self.assertEqual(entry.unit, "kc")
+        self.assertEqual(entry.remaining_to_next, 1)
+        self.assertAlmostEqual(entry.progress_percent, 11 / 12)
+
+    async def test_raid_with_float_kc_per_point(self):
+        raid = ActivityScore("Chambers of Xeric", None, 1, "Chambers_of_Xeric", 10, 12)
+        breakdown = ScoreBreakdown(skills=[], clues=[], raids=[raid], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry.category, "raid")
+        self.assertEqual(entry.unit, "kc")
+        self.assertAlmostEqual(entry.remaining_to_next, 0.4, places=5)
+        self.assertAlmostEqual(entry.progress_percent, 0.5)
+
+    async def test_clue_preserves_display_name(self):
+        clue = ActivityScore(
+            "Clue Scrolls (beginner)", "Beginner", 1, "Beginner_Clue", 5, 0
+        )
+        breakdown = ScoreBreakdown(skills=[], clues=[clue], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry.category, "clue")
+        self.assertEqual(entry.display_name, "Beginner")
+        self.assertEqual(entry.remaining_to_next, 5)
+        self.assertAlmostEqual(entry.progress_percent, 0.5)
+
+    async def test_activity_zero_kc_excluded(self):
+        boss = ActivityScore("Zulrah", None, 59, "Zulrah", 0, 0)
+        breakdown = ScoreBreakdown(skills=[], clues=[], raids=[], bosses=[boss])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(result, [])
+
+    async def test_results_sorted_by_pct_desc(self):
+        skills = [
+            SkillScore("Attack", None, 1, "Attack", 20000, 20, 0),
+            SkillScore("Defence", None, 7, "Defence", 90000, 90, 0),
+        ]
+        bosses = [ActivityScore("Zulrah", None, 59, "Zulrah", 1, 0)]
+        clues = [
+            ActivityScore(
+                "Clue Scrolls (beginner)", "Beginner", 1, "Beginner_Clue", 9, 0
+            )
+        ]
+        breakdown = ScoreBreakdown(skills=skills, clues=clues, raids=[], bosses=bosses)
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 4)
+        pcts = [e.progress_percent for e in result]
+        self.assertEqual(pcts, sorted(pcts, reverse=True))
+
+    async def test_ties_broken_by_name_ascending(self):
+        skills = [
+            SkillScore("Defence", None, 7, "Defence", 50000, 50, 0),
+            SkillScore("Attack", None, 1, "Attack", 50000, 50, 0),
+        ]
+        breakdown = ScoreBreakdown(skills=skills, clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].name, "Attack")
+        self.assertEqual(result[1].name, "Defence")
+
+    async def test_capped_at_ten_results(self):
+        skills = [
+            SkillScore(f"Skill{i}", None, i, f"Skill{i}", (i + 1) * 1000, 10, 0)
+            for i in range(12)
+        ]
+        data_module.set_data(
+            skills=[
+                {
+                    "name": f"Skill{i}",
+                    "display_order": i,
+                    "emoji_key": f"Skill{i}",
+                    "xp_per_point": 1000,
+                    "xp_per_point_post_99": 3000,
+                }
+                for i in range(12)
+            ],
+            bosses=[],
+            raids=[],
+            clues=[],
+        )
+        breakdown = ScoreBreakdown(skills=skills, clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(len(result), 10)
+
+    async def test_returns_nextpointprogress_instances(self):
+        skill = SkillScore("Attack", None, 1, "Attack", 50000, 50, 0)
+        breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertIsInstance(result[0], NextPointProgress)

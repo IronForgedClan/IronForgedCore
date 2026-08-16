@@ -769,6 +769,7 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.category, "skill")
         self.assertEqual(entry.name, "Attack")
         self.assertEqual(entry.emoji_key, "Attack")
+        self.assertEqual(entry.current, 80000)
         self.assertEqual(entry.points, 0)
         self.assertEqual(entry.unit, "xp")
         self.assertEqual(entry.remaining_to_next, 20000)
@@ -782,6 +783,7 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(result), 1)
         entry = result[0]
+        self.assertEqual(entry.current, 200000)
         self.assertEqual(entry.points, 2)
         self.assertEqual(entry.remaining_to_next, 100000)
         self.assertAlmostEqual(entry.progress_percent, 0.0)
@@ -794,6 +796,7 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(result), 1)
         entry = result[0]
+        self.assertEqual(entry.current, 13200000)
         self.assertEqual(entry.points, 130)
         self.assertEqual(entry.unit, "xp")
         self.assertEqual(entry.remaining_to_next, 134431)
@@ -817,6 +820,7 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
         entry = result[0]
         self.assertEqual(entry.category, "boss")
         self.assertEqual(entry.name, "Zulrah")
+        self.assertEqual(entry.current, 11)
         self.assertEqual(entry.unit, "kc")
         self.assertEqual(entry.remaining_to_next, 1)
         self.assertAlmostEqual(entry.progress_percent, 11 / 12)
@@ -830,6 +834,7 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 1)
         entry = result[0]
         self.assertEqual(entry.category, "raid")
+        self.assertEqual(entry.current, 10)
         self.assertEqual(entry.unit, "kc")
         self.assertAlmostEqual(entry.remaining_to_next, 0.4, places=5)
         self.assertAlmostEqual(entry.progress_percent, 0.5)
@@ -845,6 +850,7 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 1)
         entry = result[0]
         self.assertEqual(entry.category, "clue")
+        self.assertEqual(entry.current, 5)
         self.assertEqual(entry.display_name, "Beginner")
         self.assertEqual(entry.remaining_to_next, 5)
         self.assertAlmostEqual(entry.progress_percent, 0.5)
@@ -915,6 +921,44 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(result), 10)
 
+    async def test_limit_param_caps_results(self):
+        skills = [
+            SkillScore(f"Skill{i}", None, i, f"Skill{i}", (i + 1) * 1000, 10, 0)
+            for i in range(12)
+        ]
+        data_module.set_data(
+            skills=[
+                {
+                    "name": f"Skill{i}",
+                    "display_order": i,
+                    "emoji_key": f"Skill{i}",
+                    "xp_per_point": 1000,
+                    "xp_per_point_post_99": 3000,
+                }
+                for i in range(12)
+            ],
+            bosses=[],
+            raids=[],
+            clues=[],
+        )
+        breakdown = ScoreBreakdown(skills=skills, clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(
+            breakdown, limit=5
+        )
+
+        self.assertEqual(len(result), 5)
+
+    async def test_limit_param_returns_all_when_limit_exceeds_count(self):
+        skills = [SkillScore("Attack", None, 1, "Attack", 50000, 50, 0)]
+        breakdown = ScoreBreakdown(skills=skills, clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(
+            breakdown, limit=100
+        )
+
+        self.assertEqual(len(result), 1)
+
     async def test_returns_nextpointprogress_instances(self):
         skill = SkillScore("Attack", None, 1, "Attack", 50000, 50, 0)
         breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
@@ -922,3 +966,19 @@ class TestGetProximityToNextPoint(unittest.IsolatedAsyncioTestCase):
         result = await self.score_service.get_proximity_to_next_point(breakdown)
 
         self.assertIsInstance(result[0], NextPointProgress)
+
+    async def test_current_field_set_for_skill(self):
+        skill = SkillScore("Attack", None, 1, "Attack", 50000, 50, 0)
+        breakdown = ScoreBreakdown(skills=[skill], clues=[], raids=[], bosses=[])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(result[0].current, 50000)
+
+    async def test_current_field_set_for_activity(self):
+        boss = ActivityScore("Zulrah", None, 59, "Zulrah", 11, 0)
+        breakdown = ScoreBreakdown(skills=[], clues=[], raids=[], bosses=[boss])
+
+        result = await self.score_service.get_proximity_to_next_point(breakdown)
+
+        self.assertEqual(result[0].current, 11)

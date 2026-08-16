@@ -188,9 +188,9 @@ class ScoreService:
         return clues, raids, bosses
 
     async def get_proximity_to_next_point(
-        self, breakdown: ScoreBreakdown
+        self, breakdown: ScoreBreakdown, limit: int = 10
     ) -> list[NextPointProgress]:
-        """Return the top 10 items closest to gaining their next point.
+        """Return the items closest to gaining their next point.
 
         Each item is a SkillScore or ActivityScore from the breakdown, scored
         by the percentage of the next point already earned. Items with no
@@ -199,7 +199,7 @@ class ScoreService:
         supported.
 
         Results are sorted by `progress_percent` descending, ties broken by
-        `name` ascending. Limited to the top 10.
+        `name` ascending. Limited to `limit` items (default 10).
         """
         results: list[NextPointProgress] = []
 
@@ -232,6 +232,7 @@ class ScoreService:
                     name=skill.name,
                     display_name=None,
                     emoji_key=skill.emoji_key,
+                    current=skill.xp,
                     points=skill.points,
                     progress_percent=1 - (remaining / bucket),
                     remaining_to_next=remaining,
@@ -260,6 +261,7 @@ class ScoreService:
                     name=boss.name,
                     display_name=boss.display_name,
                     emoji_key=boss.emoji_key,
+                    current=boss.kc,
                     points=boss.points,
                     progress_percent=1 - (remaining / bucket),
                     remaining_to_next=remaining,
@@ -288,6 +290,7 @@ class ScoreService:
                     name=raid.name,
                     display_name=raid.display_name,
                     emoji_key=raid.emoji_key,
+                    current=raid.kc,
                     points=raid.points,
                     progress_percent=1 - (remaining / bucket),
                     remaining_to_next=remaining,
@@ -315,6 +318,7 @@ class ScoreService:
                     category="clue",
                     name=clue.name,
                     display_name=clue.display_name,
+                    current=clue.kc,
                     emoji_key=clue.emoji_key,
                     points=clue.points,
                     progress_percent=1 - (remaining / bucket),
@@ -324,7 +328,7 @@ class ScoreService:
             )
 
         results.sort(key=lambda e: (-e.progress_percent, e.name))
-        return results[:10]
+        return results[:limit]
 
     async def get_player_points_total(
         self, player_name: str, bypass_cache: bool | None = False

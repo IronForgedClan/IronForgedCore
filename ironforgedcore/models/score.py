@@ -37,6 +37,7 @@ class NextPointProgress:
     name: str
     display_name: Optional[str]
     emoji_key: str
+    current: int
     points: int
     progress_percent: float
     remaining_to_next: int

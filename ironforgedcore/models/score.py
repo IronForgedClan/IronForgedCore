@@ -42,3 +42,4 @@ class NextPointProgress:
     progress_percent: float
     remaining_to_next: int
     unit: str
+    time_hours: Optional[float] = None

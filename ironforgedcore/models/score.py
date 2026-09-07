@@ -29,3 +29,17 @@ class ScoreBreakdown:
     clues: list[ActivityScore]
     raids: list[ActivityScore]
     bosses: list[ActivityScore]
+
+
+@dataclass
+class NextPointProgress:
+    category: str
+    name: str
+    display_name: Optional[str]
+    emoji_key: str
+    current: int
+    points: int
+    progress_percent: float
+    remaining_to_next: int
+    unit: str
+    time_hours: Optional[float] = None

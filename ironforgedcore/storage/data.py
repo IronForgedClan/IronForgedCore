@@ -6,12 +6,18 @@ T = TypeVar("T", bound=TypedDict)
 logger = logging.getLogger(__name__)
 
 
+class XpRateBucket(TypedDict):
+    end_xp: int  # exclusive upper bound; bucket applies when skill_xp < end_xp
+    rate: float  # xp/hour within this bracket
+
+
 class Skill(TypedDict):
     name: str
     display_order: int
     emoji_key: str
     xp_per_point: int
     xp_per_point_post_99: int
+    xp_per_hour: NotRequired[List[XpRateBucket]]
 
 
 class Activity(TypedDict):
@@ -20,6 +26,7 @@ class Activity(TypedDict):
     display_order: int
     emoji_key: str
     kc_per_point: int
+    kc_per_hour: NotRequired[float]
 
 
 SKILLS: List[Skill] | None = None

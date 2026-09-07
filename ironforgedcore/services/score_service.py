@@ -1,4 +1,5 @@
 import logging
+import math
 
 from ironforgedcore.cache.score_cache import SCORE_CACHE
 from ironforgedcore.common.normalize import normalize_discord_string
@@ -18,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 # Global service instances to avoid recreation
 _score_service_instance = None
+
+
+def _find_bucket_rate(buckets: list[dict] | None, current_xp: int) -> float | None:
+    """Return the rate for the XP bucket containing ``current_xp``"""
+    if not buckets:
+        return None
+    for bucket in buckets:
+        if current_xp < bucket["end_xp"]:
+            return float(bucket["rate"])
+    return float(buckets[-1]["rate"])
+
+
+# Entries that are unrealistic to sustain kph so are excluded from point_progress
+EXCLUDED_ITEMS: set[str] = {"Mimic", "Hespori", "Skotizo"}
 
 
 class ScoreService:
@@ -190,16 +205,17 @@ class ScoreService:
     async def get_proximity_to_next_point(
         self, breakdown: ScoreBreakdown, limit: int = 10
     ) -> list[NextPointProgress]:
-        """Return the items closest to gaining their next point.
+        """Return items ranked by shortest real time to the next point.
 
-        Each item is a SkillScore or ActivityScore from the breakdown, scored
-        by the percentage of the next point already earned. Items with no
-        progress (0 XP / 0 KC) are excluded. Skills above level 99 use the
-        post-99 XP threshold. Activities with float `kc_per_point` are
-        supported.
+        Each item is a SkillScore or ActivityScore from the breakdown. Items
+        with no progress (0 XP / 0 KC) are excluded. Skills above level 99
+        use the post-99 XP threshold.
 
-        Results are sorted by `progress_percent` descending, ties broken by
-        `name` ascending. Limited to `limit` items (default 10).
+        ``time_hours`` is computed per entry as ``remaining / rate`` when
+        a positive rate is available, else ``None``. For skills, the rate is
+        resolved from the tiered ``config["xp_per_hour"]`` bucket list by
+        selecting the bucket whose ``end_xp`` exceeds the player's current
+        XP. Activities use a single ``config["kc_per_hour"]``.
         """
         results: list[NextPointProgress] = []
 
@@ -212,6 +228,9 @@ class ScoreService:
             if config is None:
                 continue
 
+            if config.get("name") in EXCLUDED_ITEMS:
+                continue
+
             if skill.xp < self.level_99_xp:
                 bucket = config["xp_per_point"]
                 current_point = skill.xp // bucket
@@ -222,9 +241,17 @@ class ScoreService:
                 post_99_point = post_99_xp // bucket
                 next_threshold = self.level_99_xp + (post_99_point + 1) * bucket
 
-            remaining = next_threshold - skill.xp
-            if remaining <= 0:
+            raw_remaining = next_threshold - skill.xp
+            if raw_remaining <= 0:
                 continue
+
+            # Players gain at minimum 1xp per action- ceil so the displayed
+            # remaining and the time estimate describe the same quantity
+            remaining = math.ceil(raw_remaining)
+
+            buckets = config.get("xp_per_hour")
+            rate = _find_bucket_rate(buckets, skill.xp)
+            time_hours = remaining / rate if rate and rate > 0 else None
 
             results.append(
                 NextPointProgress(
@@ -234,9 +261,10 @@ class ScoreService:
                     emoji_key=skill.emoji_key,
                     current=skill.xp,
                     points=skill.points,
-                    progress_percent=1 - (remaining / bucket),
+                    progress_percent=1 - (raw_remaining / bucket),
                     remaining_to_next=remaining,
                     unit="xp",
+                    time_hours=time_hours,
                 )
             )
 
@@ -249,11 +277,21 @@ class ScoreService:
             if config is None:
                 continue
 
+            if config.get("name") in EXCLUDED_ITEMS:
+                continue
+
             bucket = config["kc_per_point"]
             next_threshold = (boss.points + 1) * bucket
-            remaining = next_threshold - boss.kc
-            if remaining <= 0:
+            raw_remaining = next_threshold - boss.kc
+            if raw_remaining <= 0:
                 continue
+
+            remaining = math.ceil(raw_remaining)
+
+            kc_per_hour = config.get("kc_per_hour")
+            time_hours = (
+                remaining / kc_per_hour if kc_per_hour and kc_per_hour > 0 else None
+            )
 
             results.append(
                 NextPointProgress(
@@ -263,9 +301,10 @@ class ScoreService:
                     emoji_key=boss.emoji_key,
                     current=boss.kc,
                     points=boss.points,
-                    progress_percent=1 - (remaining / bucket),
+                    progress_percent=1 - (raw_remaining / bucket),
                     remaining_to_next=remaining,
                     unit="kc",
+                    time_hours=time_hours,
                 )
             )
 
@@ -278,11 +317,21 @@ class ScoreService:
             if config is None:
                 continue
 
+            if config.get("name") in EXCLUDED_ITEMS:
+                continue
+
             bucket = config["kc_per_point"]
             next_threshold = (raid.points + 1) * bucket
-            remaining = next_threshold - raid.kc
-            if remaining <= 0:
+            raw_remaining = next_threshold - raid.kc
+            if raw_remaining <= 0:
                 continue
+
+            remaining = math.ceil(raw_remaining)
+
+            kc_per_hour = config.get("kc_per_hour")
+            time_hours = (
+                remaining / kc_per_hour if kc_per_hour and kc_per_hour > 0 else None
+            )
 
             results.append(
                 NextPointProgress(
@@ -292,9 +341,10 @@ class ScoreService:
                     emoji_key=raid.emoji_key,
                     current=raid.kc,
                     points=raid.points,
-                    progress_percent=1 - (remaining / bucket),
+                    progress_percent=1 - (raw_remaining / bucket),
                     remaining_to_next=remaining,
                     unit="kc",
+                    time_hours=time_hours,
                 )
             )
 
@@ -307,11 +357,21 @@ class ScoreService:
             if config is None:
                 continue
 
+            if config.get("name") in EXCLUDED_ITEMS:
+                continue
+
             bucket = config["kc_per_point"]
             next_threshold = (clue.points + 1) * bucket
-            remaining = next_threshold - clue.kc
-            if remaining <= 0:
+            raw_remaining = next_threshold - clue.kc
+            if raw_remaining <= 0:
                 continue
+
+            remaining = math.ceil(raw_remaining)
+
+            kc_per_hour = config.get("kc_per_hour")
+            time_hours = (
+                remaining / kc_per_hour if kc_per_hour and kc_per_hour > 0 else None
+            )
 
             results.append(
                 NextPointProgress(
@@ -321,13 +381,14 @@ class ScoreService:
                     current=clue.kc,
                     emoji_key=clue.emoji_key,
                     points=clue.points,
-                    progress_percent=1 - (remaining / bucket),
+                    progress_percent=1 - (raw_remaining / bucket),
                     remaining_to_next=remaining,
                     unit="kc",
+                    time_hours=time_hours,
                 )
             )
 
-        results.sort(key=lambda e: (-e.progress_percent, e.name))
+        results.sort(key=lambda e: (e.time_hours is None, e.time_hours, e.name))
         return results[:limit]
 
     async def get_player_points_total(

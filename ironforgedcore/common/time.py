@@ -23,19 +23,22 @@ def render_relative_time(target: datetime) -> str:
         return f"{delta.seconds} second{'s' if delta.seconds != 1 else ''} ago"
 
 
-def format_duration_hours(hours: float | None, suffix: str) -> str:
+def format_duration_hours(hours: float | None, suffix: str | None = None) -> str:
     """Format a duration in days/hours/minutes as a compact string"""
+
     if hours is None:
         return "-"
+
+    suffix = f" {suffix}" if suffix else ""
 
     total_minutes = hours * 60
     if total_minutes < 1:
         minutes = 1 if hours > 0 else 0
-        return f"{minutes} min {suffix}"
+        return f"{minutes} min{suffix}"
 
     if total_minutes < 60:
         minutes = int(total_minutes)
-        return f"{minutes} min {suffix}"
+        return f"{minutes} min{suffix}"
 
     total_hours_int = int(hours)
     minutes = int(round((hours - total_hours_int) * 60))
@@ -45,13 +48,13 @@ def format_duration_hours(hours: float | None, suffix: str) -> str:
 
     if total_hours_int < 24:
         if minutes == 0:
-            return f"{total_hours_int} hr {suffix}"
-        return f"{total_hours_int} hr {minutes} min {suffix}"
+            return f"{total_hours_int} hr{suffix}"
+        return f"{total_hours_int} hr {minutes} min{suffix}"
 
     days = total_hours_int // 24
     hours_remainder = total_hours_int % 24
     if minutes == 0 and hours_remainder == 0:
-        return f"{days} d {suffix}"
+        return f"{days} d{suffix}"
     if minutes == 0:
-        return f"{days} d {hours_remainder} hr {suffix}"
-    return f"{days} d {hours_remainder} hr {minutes} min {suffix}"
+        return f"{days} d {hours_remainder} hr{suffix}"
+    return f"{days} d {hours_remainder} hr {minutes} min{suffix}"

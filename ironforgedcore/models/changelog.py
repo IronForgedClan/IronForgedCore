@@ -19,6 +19,7 @@ class ChangeType(IntEnum):
     PURCHASE_RAFFLE_TICKETS = 8
     ROLE_CHANGE = 9
     FLAG_CHANGE = 10
+    DISCORD_ID_CHANGE = 11
 
 
 class Changelog(Base):

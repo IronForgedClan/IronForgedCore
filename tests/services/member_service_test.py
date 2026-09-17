@@ -660,6 +660,161 @@ class TestMemberService(unittest.IsolatedAsyncioTestCase):
         self.mock_db.rollback.assert_called_once()
 
     @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_discord_id_success(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+
+        with (
+            patch.object(
+                self.member_service, "get_member_by_id", return_value=self.sample_member
+            ) as mock_get_by_id,
+            patch.object(
+                self.member_service,
+                "get_member_by_discord_id",
+                return_value=None,
+            ) as mock_get_by_discord,
+        ):
+            result = await self.member_service.change_discord_id(
+                "test-member-id",
+                99999,
+                admin_id="admin-id",
+                comment="Reassigned for testing",
+            )
+
+        self.assertEqual(result.discord_id, 99999)
+        self.assertEqual(result.last_changed_date, self.fixed_datetime)
+        mock_get_by_id.assert_called_once_with("test-member-id")
+        mock_get_by_discord.assert_called_once_with(99999)
+
+        self.mock_db.add.assert_called_once()
+        changelog_call = self.mock_db.add.call_args_list[0][0][0]
+        self.assertIsInstance(changelog_call, Changelog)
+        self.assertEqual(changelog_call.change_type, ChangeType.DISCORD_ID_CHANGE)
+        self.assertEqual(changelog_call.admin_id, "admin-id")
+        self.assertEqual(changelog_call.previous_value, "12345")
+        self.assertEqual(changelog_call.new_value, "99999")
+        self.assertEqual(changelog_call.comment, "Reassigned for testing")
+
+        self.mock_db.commit.assert_called_once()
+        self.mock_db.refresh.assert_called_once_with(self.sample_member)
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_discord_id_default_comment(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+
+        with (
+            patch.object(
+                self.member_service, "get_member_by_id", return_value=self.sample_member
+            ),
+            patch.object(
+                self.member_service, "get_member_by_discord_id", return_value=None
+            ),
+        ):
+            await self.member_service.change_discord_id("test-member-id", 99999)
+
+        changelog_call = self.mock_db.add.call_args_list[0][0][0]
+        self.assertEqual(changelog_call.comment, "Discord account reassigned")
+
+    async def test_change_discord_id_member_not_found(self):
+        with patch.object(self.member_service, "get_member_by_id", return_value=None):
+            with self.assertRaises(MemberNotFoundException):
+                await self.member_service.change_discord_id("nonexistent-id", 99999)
+
+        self.mock_db.add.assert_not_called()
+        self.mock_db.commit.assert_not_called()
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_discord_id_noop_when_unchanged(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+
+        with (
+            patch.object(
+                self.member_service, "get_member_by_id", return_value=self.sample_member
+            ) as mock_get_by_id,
+            patch.object(
+                self.member_service, "get_member_by_discord_id"
+            ) as mock_get_by_discord,
+        ):
+            result = await self.member_service.change_discord_id(
+                "test-member-id", 12345
+            )
+
+        self.assertEqual(result.discord_id, 12345)
+        mock_get_by_id.assert_called_once_with("test-member-id")
+        mock_get_by_discord.assert_not_called()
+        self.mock_db.add.assert_not_called()
+        self.mock_db.commit.assert_not_called()
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_discord_id_collision_raises(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+        conflicting = Member(
+            id="other-id",
+            discord_id=99999,
+            active=True,
+            nickname="OtherUser",
+            ingots=0,
+            rank=RANK.IRON,
+            joined_date=self.fixed_datetime,
+            last_changed_date=self.fixed_datetime,
+        )
+
+        with (
+            patch.object(
+                self.member_service, "get_member_by_id", return_value=self.sample_member
+            ),
+            patch.object(
+                self.member_service,
+                "get_member_by_discord_id",
+                return_value=conflicting,
+            ),
+        ):
+            with self.assertRaises(UniqueDiscordIdVolation) as ctx:
+                await self.member_service.change_discord_id("test-member-id", 99999)
+
+        self.assertIn("OtherUser", str(ctx.exception))
+        self.assertIn("other-id", str(ctx.exception))
+        self.mock_db.add.assert_not_called()
+        self.mock_db.commit.assert_not_called()
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_discord_id_integrity_error(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+        self.mock_db.commit.side_effect = IntegrityError(
+            "discord_id", None, Exception()
+        )
+
+        with (
+            patch.object(
+                self.member_service, "get_member_by_id", return_value=self.sample_member
+            ),
+            patch.object(
+                self.member_service, "get_member_by_discord_id", return_value=None
+            ),
+        ):
+            with self.assertRaises(UniqueDiscordIdVolation):
+                await self.member_service.change_discord_id("test-member-id", 99999)
+
+        self.mock_db.rollback.assert_called_once()
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_discord_id_generic_exception(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+        self.mock_db.commit.side_effect = RuntimeError("Database error")
+
+        with (
+            patch.object(
+                self.member_service, "get_member_by_id", return_value=self.sample_member
+            ),
+            patch.object(
+                self.member_service, "get_member_by_discord_id", return_value=None
+            ),
+        ):
+            with self.assertRaises(RuntimeError):
+                await self.member_service.change_discord_id("test-member-id", 99999)
+
+        self.mock_db.rollback.assert_called_once()
+
+    @patch("ironforgedcore.services.member_service.datetime")
     async def test_create_member_default_rank(self, mock_datetime):
         mock_datetime.now.return_value = self.fixed_datetime
 

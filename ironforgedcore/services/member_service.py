@@ -669,3 +669,50 @@ class MemberService:
             raise e
 
         return member
+
+    @log_database_operation(logger)
+    async def change_joined_date(
+        self,
+        id: str,
+        new_joined_date: datetime,
+        admin_id: str | None = None,
+        comment: str = "Manually set join date",
+    ) -> Member:
+        """Manually overwrite a member's joined_date
+
+        Raises:
+            MemberNotFoundException: no member with the given id.
+        """
+        member = await self.get_member_by_id(id)
+        if not member:
+            raise MemberNotFoundException(f"Member with id {id} does not exist")
+
+        if member.joined_date == new_joined_date:
+            return member
+
+        now = datetime.now(timezone.utc)
+        previous_joined_date = member.joined_date
+
+        changelog_entry = Changelog(
+            member_id=member.id,
+            admin_id=admin_id,
+            change_type=ChangeType.JOINED_DATE_CHANGE,
+            previous_value=previous_joined_date,
+            new_value=new_joined_date,
+            comment=comment,
+            timestamp=now,
+        )
+
+        member.joined_date = new_joined_date
+        member.last_changed_date = now
+
+        try:
+            self.db.add(changelog_entry)
+            await self.db.commit()
+            await self.db.refresh(member)
+        except Exception as e:
+            logger.critical(e)
+            await self.db.rollback()
+            raise e
+
+        return member

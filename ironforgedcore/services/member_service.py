@@ -612,10 +612,7 @@ class MemberService:
         admin_id: str | None = None,
         comment: str = "Discord account reassigned",
     ) -> Member:
-        """Reassign a member's discord_id to a different Discord account.
-
-        Writes a single DISCORD_ID_CHANGE changelog entry capturing the
-        previous and new discord_id.
+        """Reassign a member's discord_id to a different Discord account
 
         Raises:
             MemberNotFoundException: no member with the given id.

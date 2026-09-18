@@ -815,6 +815,91 @@ class TestMemberService(unittest.IsolatedAsyncioTestCase):
         self.mock_db.rollback.assert_called_once()
 
     @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_joined_date_success(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+        original_joined_date = self.sample_member.joined_date
+        new_date = datetime(2024, 6, 15, tzinfo=timezone.utc)
+
+        with patch.object(
+            self.member_service, "get_member_by_id", return_value=self.sample_member
+        ):
+            result = await self.member_service.change_joined_date(
+                "test-member-id",
+                new_date,
+                admin_id="admin-id",
+                comment="Backfilled from sheet",
+            )
+
+        self.assertEqual(result.joined_date, new_date)
+        self.assertEqual(result.last_changed_date, self.fixed_datetime)
+
+        self.mock_db.add.assert_called_once()
+        changelog_call = self.mock_db.add.call_args_list[0][0][0]
+        self.assertIsInstance(changelog_call, Changelog)
+        self.assertEqual(changelog_call.change_type, ChangeType.JOINED_DATE_CHANGE)
+        self.assertEqual(changelog_call.admin_id, "admin-id")
+        self.assertEqual(changelog_call.previous_value, original_joined_date)
+        self.assertEqual(changelog_call.new_value, new_date)
+        self.assertEqual(changelog_call.comment, "Backfilled from sheet")
+
+        self.mock_db.commit.assert_called_once()
+        self.mock_db.refresh.assert_called_once_with(self.sample_member)
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_joined_date_default_comment(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+        new_date = datetime(2024, 6, 15, tzinfo=timezone.utc)
+
+        with patch.object(
+            self.member_service, "get_member_by_id", return_value=self.sample_member
+        ):
+            await self.member_service.change_joined_date("test-member-id", new_date)
+
+        changelog_call = self.mock_db.add.call_args_list[0][0][0]
+        self.assertEqual(changelog_call.change_type, ChangeType.JOINED_DATE_CHANGE)
+        self.assertEqual(changelog_call.comment, "Manually set join date")
+
+    async def test_change_joined_date_member_not_found(self):
+        new_date = datetime(2024, 6, 15, tzinfo=timezone.utc)
+
+        with patch.object(self.member_service, "get_member_by_id", return_value=None):
+            with self.assertRaises(MemberNotFoundException):
+                await self.member_service.change_joined_date("nonexistent-id", new_date)
+
+        self.mock_db.add.assert_not_called()
+        self.mock_db.commit.assert_not_called()
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_joined_date_noop_when_unchanged(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+
+        with patch.object(
+            self.member_service, "get_member_by_id", return_value=self.sample_member
+        ) as mock_get_by_id:
+            result = await self.member_service.change_joined_date(
+                "test-member-id", self.sample_member.joined_date
+            )
+
+        self.assertEqual(result.joined_date, self.sample_member.joined_date)
+        mock_get_by_id.assert_called_once_with("test-member-id")
+        self.mock_db.add.assert_not_called()
+        self.mock_db.commit.assert_not_called()
+
+    @patch("ironforgedcore.services.member_service.datetime")
+    async def test_change_joined_date_generic_exception(self, mock_datetime):
+        mock_datetime.now.return_value = self.fixed_datetime
+        new_date = datetime(2024, 6, 15, tzinfo=timezone.utc)
+        self.mock_db.commit.side_effect = RuntimeError("Database error")
+
+        with patch.object(
+            self.member_service, "get_member_by_id", return_value=self.sample_member
+        ):
+            with self.assertRaises(RuntimeError):
+                await self.member_service.change_joined_date("test-member-id", new_date)
+
+        self.mock_db.rollback.assert_called_once()
+
+    @patch("ironforgedcore.services.member_service.datetime")
     async def test_create_member_default_rank(self, mock_datetime):
         mock_datetime.now.return_value = self.fixed_datetime
 

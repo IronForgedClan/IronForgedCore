@@ -456,3 +456,204 @@ class TestLatestIngotTransactionsDaysArg(unittest.IsolatedAsyncioTestCase):
         sql = str(query.compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("2024-06-01", sql)
         self.assertNotIn("2025", sql)
+
+
+class TestGetChangelogForMember(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.mock_db = AsyncMock()
+        self.mock_db.execute = AsyncMock()
+        self.service = ChangelogService(self.mock_db)
+        self.service.member_service = AsyncMock()
+
+        self.fixed = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        self.empty_result = MagicMock()
+        empty_scalars = MagicMock()
+        empty_scalars.all.return_value = []
+        self.empty_result.scalars.return_value = empty_scalars
+
+    def _stub_execute(self, entries):
+        mock_result = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = entries
+        mock_result.scalars.return_value = mock_scalars
+        self.mock_db.execute.return_value = mock_result
+        return mock_result
+
+    def _build_changelog(self, **overrides):
+        defaults = dict(
+            id=1,
+            member_id="test-member-id",
+            admin_id=None,
+            change_type=ChangeType.ADD_INGOTS,
+            previous_value="0",
+            new_value="100",
+            comment=None,
+            timestamp=self.fixed,
+        )
+        defaults.update(overrides)
+        return Changelog(**defaults)
+
+    async def test_get_changelog_for_member_returns_all_change_types(self):
+        entries = [
+            self._build_changelog(id=1, change_type=ChangeType.ADD_INGOTS),
+            self._build_changelog(
+                id=2,
+                change_type=ChangeType.NAME_CHANGE,
+                previous_value="old",
+                new_value="new",
+            ),
+            self._build_changelog(id=3, change_type=ChangeType.RANK_CHANGE),
+            self._build_changelog(id=4, change_type=ChangeType.ROLE_CHANGE),
+        ]
+        self._stub_execute(entries)
+
+        result = await self.service.get_changelog_for_member(12345)
+
+        self.assertEqual(len(result), 4)
+        change_types = {entry.change_type for entry in result}
+        self.assertEqual(
+            change_types,
+            {
+                ChangeType.ADD_INGOTS,
+                ChangeType.NAME_CHANGE,
+                ChangeType.RANK_CHANGE,
+                ChangeType.ROLE_CHANGE,
+            },
+        )
+
+    async def test_get_changelog_for_member_default_no_change_type_filter(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertNotIn(" in ", sql)
+
+    async def test_get_changelog_for_member_filter_by_change_types(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(
+            12345, change_types=[ChangeType.ADD_INGOTS, ChangeType.REMOVE_INGOTS]
+        )
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn(" in ", sql)
+
+    async def test_get_changelog_for_member_orders_descending_by_timestamp(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("order by changelog.timestamp desc", sql)
+
+    async def test_get_changelog_for_member_outer_joins_admin(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345)
+
+        query_str = str(self.mock_db.execute.call_args[0][0]).lower()
+        self.assertIn("left outer join", query_str)
+
+    async def test_get_changelog_for_member_hydrates_admin_member(self):
+        entry = self._build_changelog(id=1, admin_id="admin-id")
+        self._stub_execute([entry])
+
+        admin_member = MagicMock()
+        admin_member.id = "admin-id"
+        admin_map_result = MagicMock()
+        admin_scalars = MagicMock()
+        admin_scalars.all.return_value = [admin_member]
+        admin_map_result.scalars.return_value = admin_scalars
+
+        self.mock_db.execute.side_effect = [
+            self.mock_db.execute.return_value,
+            admin_map_result,
+        ]
+
+        result = await self.service.get_changelog_for_member(12345)
+
+        self.assertIs(result[0].admin_member, admin_member)
+
+    async def test_get_changelog_for_member_empty(self):
+        self._stub_execute([])
+
+        result = await self.service.get_changelog_for_member(12345)
+
+        self.assertEqual(result, [])
+
+    async def test_get_changelog_for_member_no_limit_by_default(self):
+        entries = [self._build_changelog(id=i) for i in range(1, 6)]
+        self._stub_execute(entries)
+
+        result = await self.service.get_changelog_for_member(12345)
+
+        self.assertEqual(len(result), 5)
+
+    async def test_get_changelog_for_member_respects_limit(self):
+        entries = [self._build_changelog(id=i) for i in range(1, 4)]
+        self._stub_execute(entries)
+
+        result = await self.service.get_changelog_for_member(12345, limit=3)
+
+        self.assertEqual(len(result), 3)
+
+    async def test_get_changelog_for_member_applies_limit_to_query(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345, limit=10)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("limit 10", sql)
+
+    async def test_get_changelog_for_member_days_none_no_filter(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345, days=None)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertNotIn("timestamp >=", sql)
+
+    async def test_get_changelog_for_member_days_int_adds_filter(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345, days=30)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("timestamp >=", sql)
+
+    async def test_get_changelog_for_member_days_zero_no_filter(self):
+        self._stub_execute([])
+
+        await self.service.get_changelog_for_member(12345, days=0)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertNotIn("timestamp >=", sql)
+
+    async def test_get_changelog_for_member_after_kwarg_applies_filter(self):
+        self._stub_execute([])
+
+        fixed = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        await self.service.get_changelog_for_member(12345, after=fixed)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("2025-06-01", sql)
+
+    async def test_get_changelog_for_member_after_takes_precedence_over_days(self):
+        self._stub_execute([])
+
+        fixed = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        await self.service.get_changelog_for_member(12345, days=7, after=fixed)
+
+        query = self.mock_db.execute.call_args[0][0]
+        sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("2024-06-01", sql)

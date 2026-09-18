@@ -603,3 +603,113 @@ class MemberService:
             raise e
 
         return member
+
+    @log_database_operation(logger)
+    async def change_discord_id(
+        self,
+        id: str,
+        new_discord_id: int,
+        admin_id: str | None = None,
+        comment: str = "Discord account reassigned",
+    ) -> Member:
+        """Reassign a member's discord_id to a different Discord account
+
+        Raises:
+            MemberNotFoundException: no member with the given id.
+            UniqueDiscordIdVolation: new_discord_id is already linked to a
+                different member.
+        """
+        member = await self.get_member_by_id(id)
+        if not member:
+            raise MemberNotFoundException(f"Member with id {id} does not exist")
+
+        if member.discord_id == new_discord_id:
+            return member
+
+        existing = await self.get_member_by_discord_id(new_discord_id)
+        if existing and existing.id != id:
+            raise UniqueDiscordIdVolation(
+                f"Discord ID {new_discord_id} is already linked to member "
+                f"{existing.nickname} ({existing.id})"
+            )
+
+        now = datetime.now(timezone.utc)
+        previous_discord_id = member.discord_id
+
+        changelog_entry = Changelog(
+            member_id=member.id,
+            admin_id=admin_id,
+            change_type=ChangeType.DISCORD_ID_CHANGE,
+            previous_value=str(previous_discord_id),
+            new_value=str(new_discord_id),
+            comment=comment,
+            timestamp=now,
+        )
+
+        member.discord_id = new_discord_id
+        member.last_changed_date = now
+
+        try:
+            self.db.add(changelog_entry)
+            await self.db.commit()
+            await self.db.refresh(member)
+        except IntegrityError as e:
+            error_message = str(e)
+            await self.db.rollback()
+
+            if "discord_id" in error_message:
+                raise UniqueDiscordIdVolation()
+            raise e
+        except Exception as e:
+            logger.critical(e)
+            await self.db.rollback()
+            raise e
+
+        return member
+
+    @log_database_operation(logger)
+    async def change_joined_date(
+        self,
+        id: str,
+        new_joined_date: datetime,
+        admin_id: str | None = None,
+        comment: str = "Manually set join date",
+    ) -> Member:
+        """Manually overwrite a member's joined_date
+
+        Raises:
+            MemberNotFoundException: no member with the given id.
+        """
+        member = await self.get_member_by_id(id)
+        if not member:
+            raise MemberNotFoundException(f"Member with id {id} does not exist")
+
+        if member.joined_date == new_joined_date:
+            return member
+
+        now = datetime.now(timezone.utc)
+        previous_joined_date = member.joined_date
+
+        changelog_entry = Changelog(
+            member_id=member.id,
+            admin_id=admin_id,
+            change_type=ChangeType.JOINED_DATE_CHANGE,
+            previous_value=previous_joined_date,
+            new_value=new_joined_date,
+            comment=comment,
+            timestamp=now,
+        )
+
+        member.joined_date = new_joined_date
+        member.last_changed_date = now
+
+        try:
+            self.db.add(changelog_entry)
+            await self.db.commit()
+            await self.db.refresh(member)
+        except Exception as e:
+            logger.critical(e)
+            await self.db.rollback()
+            raise e
+
+        return member
